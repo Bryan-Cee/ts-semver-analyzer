@@ -39,34 +39,62 @@ npm install ts-semver-analyzer
 
 ## Usage
 
+
+### Example Type Definitions
+
+`./types/v1.d.ts`:
+
+```typescript
+export interface User {
+  name: string;
+  age?: number;  // Optional age in v1
+}
+```
+
+`./types/v2.d.ts`:
+
+```typescript
+export interface User {
+  name: string;
+  age: number;  // Required age in v2 (breaking change)
+}
+```
+
 ### Basic Example
 
 ```typescript
-import { SemverChangeDetector } from 'ts-semver-analyzer';
+import { 
+  SemverChangeDetector, 
+  type DetectorOptions,
+  type ChangeReport 
+} from 'ts-semver-analyzer';
+import * as fs from 'fs';
 
-const detector = new SemverChangeDetector({
+// Configure the detector
+const options: DetectorOptions = {
   previous: {
     name: 'v1.d.ts',
-    content: `
-      export interface User {
-        name: string;
-        age?: number;
-      }
-    `,
+    content: await fs.promises.readFile('./types/v1.d.ts', 'utf-8')
   },
   current: {
     name: 'v2.d.ts',
-    content: `
-      export interface User {
-        name: string;
-        age: number;  // Made optional property required
-      }
-    `,
-  },
-});
+    content: await fs.promises.readFile('./types/v2.d.ts', 'utf-8')
+  }
+};
 
-const report = await detector.detectChanges();
-console.log(report);
+// Initialize and use the detector
+async function analyzeChanges(): Promise<void> {
+  const detector = new SemverChangeDetector(options);
+  
+  // Initialize the detector (optional, will be called automatically by detectChanges)
+  await detector.initialize();
+  
+  // Detect changes between versions
+  const report: ChangeReport = await detector.detectChanges();
+  
+  console.log(report);
+}
+
 /*
 Output:
 {
@@ -209,7 +237,6 @@ We welcome contributions to improve the library! Here are some key areas where h
 6. **Documentation:** Improve the README and documentation to make the library more accessible.
 7. **Anything else:** If you have ideas for new features or improvements, feel free to open an issue or submit a pull request.
 
-
 ### Getting Started
 
 1. **Clone the repository:**
@@ -249,7 +276,6 @@ We welcome contributions to improve the library! Here are some key areas where h
 - **Follow coding standards:** Ensure your code follows the project's coding standards and style guidelines.
 - **Write tests:** Add tests for any new features or bug fixes.
 - **Submit a pull request:** Once your changes are ready, submit a pull request with a clear description of the changes and the problem they solve.
-
 
 ### Code Structure
 
