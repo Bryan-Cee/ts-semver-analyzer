@@ -2,9 +2,6 @@
 node_modules/
 yarn.lock
 
-# Exception for test fixtures
-!src/__test__/fixtures/**/*.d.ts
-
 # Build outputs
 dist/
 build/
@@ -12,6 +9,9 @@ lib/
 *.js
 *.js.map
 *.d.ts
+
+# Exception for test fixtures
+!src/__test__/fixtures/**/*.d.ts
 
 # TypeScript incremental compilation
 *.tsbuildinfo
