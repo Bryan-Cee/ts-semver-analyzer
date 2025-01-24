@@ -1,16 +1,44 @@
 {
-  "name": "typeversion-test",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "ts-semver-analyzer",
+  "version": "0.1.0",
+  "description": "A TypeScript library for detecting breaking changes and semantic versioning updates between TypeScript definitions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "clean": "rimraf dist",
     "build": "npm run clean && tsc",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "npm run test && npm run build",
+    "prepare": "npm run build"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "typescript",
+    "semver",
+    "versioning",
+    "type-checking",
+    "breaking-changes",
+    "compatibility",
+    "types"
+  ],
+  "author": {
+    "name": "Bryce Cee",
+    "email": "bryce@brycesweb.com",
+    "url": "https://brycesweb.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bryan-Cee/ts-semver-analyzer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Bryan-Cee/ts-semver-analyzer/issues"
+  },
+  "homepage": "https://github.com/Bryan-Cee/ts-semver-analyzer#readme",
+  "license": "MIT",
   "dependencies": {
     "typescript": "^5.7.3"
   },
@@ -19,5 +47,8 @@
     "jest": "^29.7.0",
     "rimraf": "^6.0.1",
     "ts-jest": "^29.2.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
