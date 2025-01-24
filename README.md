@@ -1,172 +1,276 @@
-# TypeVersion Test
+# ts-semver-analyzer
 
 A TypeScript library for detecting breaking changes and semantic versioning updates between TypeScript definitions. This tool helps maintain API compatibility by analyzing TypeScript interfaces, types, and functions.
 
+---
+
 ## ⚠️ Development Status
 
-This package is currently in active development and has some known issues:
+This package is currently in **active development**. Some features are still being refined, and contributions are welcome to help resolve the following issues:
 
-- Function signature comparison needs improvement
-- Advanced TypeScript features (mapped types, conditional types) support is incomplete
-- Some type compatibility tests are failing
-- Generic type constraint detection needs enhancement
+- **Function Signature Comparison:** Needs improvement for handling complex signatures.
+- **Advanced TypeScript Features:** Support for mapped types, conditional types, and template literal types is incomplete.
+- **Type Compatibility Tests:** Some tests are failing and need fixes.
+- **Generic Type Constraints:** Detection of generic type constraints needs enhancement.
 
-Contributions are welcome to help resolve these issues\!
+If you'd like to contribute, check out the [Contributing](#contributing) section below!
+
+---
 
 ## Features
 
-- Detects breaking changes in TypeScript interfaces
-- Identifies modifications in type definitions
-- Analyzes function signature changes
-- Supports basic type comparisons
-- Provides detailed change reports with semantic versioning recommendations
+- **Breaking Change Detection:** Identifies breaking changes in TypeScript interfaces, types, and functions.
+- **Semantic Versioning Recommendations:** Provides detailed change reports with `major`, `minor`, or `patch` version recommendations.
+- **Type Comparison:** Supports basic and advanced type comparisons, including unions, intersections, and generics.
+- **Function Analysis:** Detects changes in function signatures, including parameter additions, removals, and type changes.
+- **Developer-Friendly:** Easy-to-use API with clear error messages and detailed reports.
+
+---
 
 ## Installation
+
+Install the package using npm:
 
 ```bash
 npm install ts-semver-analyzer
 ```
 
+---
+
 ## Usage
+
+### Basic Example
 
 ```typescript
 import { SemverChangeDetector } from 'ts-semver-analyzer';
 
-// Initialize the detector with file paths and content
 const detector = new SemverChangeDetector({
   previous: {
     name: 'v1.d.ts',
-    content: '/* Your TypeScript definition content */',
+    content: `
+      export interface User {
+        name: string;
+        age?: number;
+      }
+    `,
   },
   current: {
     name: 'v2.d.ts',
-    content: '/* Your TypeScript definition content */',
-  }
+    content: `
+      export interface User {
+        name: string;
+        age: number;  // Made optional property required
+      }
+    `,
+  },
 });
 
-// Detect changes
 const report = await detector.detectChanges();
 console.log(report);
-// Output:
-// {
-//   changeType: "major" | "minor" | "patch",
-//   changes: string[]
-// }
+/*
+Output:
+{
+  changeType: "major",
+  changes: [
+    "BREAKING: Changed member age in interface User from optional to required",
+  ],
+}
+*/
 ```
 
-## API Reference
+---
 
-### SemverChangeDetector
+## Testing
 
-The main class for detecting semantic versioning changes between TypeScript definitions.
+### Test Fixtures
 
-#### Constructor
+The package provides factory functions to create test fixtures dynamically. These functions make it easy to generate consistent and reusable test inputs.
+
+#### Available Factory Functions
 
 ```typescript
-interface DetectorOptions {
-  previous: {
-    name: string;
-    content: string;
-  };
-  current: {
-    name: string;
-    content: string;
-  };
-}
+import {
+  createInterfaceFixture,
+  createTypeFixture,
+  createGenericInterfaceFixture,
+  createFunctionFixture,
+  createMultipleInterfaces,
+} from './fixtures/factories';
 
-constructor(options: DetectorOptions)
+// Create a basic interface
+const userInterface = createInterfaceFixture('User', `
+  name: string;
+  age: number;
+  email?: string;
+`);
+
+// Create a type definition
+const statusType = createTypeFixture('Status', "'active' | 'inactive' | 'pending'");
+
+// Create a generic interface
+const container = createGenericInterfaceFixture(
+  'Container',
+  '<T extends object>',
+  `
+    value: T;
+    metadata?: Record<string, unknown>;
+  `
+);
+
+// Create a function signature
+const callback = createFunctionFixture(
+  'processItem',
+  '<T>(item: T, index: number) => void'
+);
+
+// Create multiple interfaces
+const interfaces = createMultipleInterfaces([
+  {
+    name: 'Config',
+    members: 'debug?: boolean; timeout: number;',
+  },
+  {
+    name: 'Logger',
+    members: 'log(message: string): void;',
+  },
+]);
 ```
 
-#### Methods
+### Writing Tests
 
-##### `async detectChanges(): Promise<ChangeReport>`
-
-Analyzes the differences between the two TypeScript definitions and returns a change report.
-
-Returns:
+Here’s an example of writing a test using the factory functions:
 
 ```typescript
-interface ChangeReport {
-  changeType: "major" | "minor" | "patch";
-  changes: string[];
-}
-```
+describe('Type Changes', () => {
+  it('should detect added optional properties', async () => {
+    const detector = createDetector(
+      createInterfaceFixture('User', 'name: string'),
+      createInterfaceFixture('User', 'name: string; age?: number')
+    );
 
-### Currently Supported Features
-
-#### Breaking Changes (Major)
-
-- Removing interfaces
-- Removing interface members
-- Making optional properties required
-- Basic type incompatibility detection
-
-#### Minor Changes
-
-- Adding new interfaces
-- Adding optional properties
-- Adding union type options
-- Adding new functions
-
-#### Known Limitations
-
-- Complex generic type comparisons may not be accurate
-- Mapped type changes might not be detected correctly
-- Some function signature changes might be incorrectly categorized
-- Advanced TypeScript features need more robust support
-
-## Examples
-
-### Basic Interface Changes
-
-```typescript
-const previous = `
-interface Config {
-  items: string[];
-}
-`;
-
-const current = `
-interface Config {
-  items: string[] | number[];
-}
-`;
-
-const detector = new SemverChangeDetector({
-  previous: { name: 'v1.d.ts', content: previous },
-  current: { name: 'v2.d.ts', content: current }
+    const report = await detector.detectChanges();
+    expect(report).toEqual({
+      changeType: 'minor',
+      changes: ['MINOR: Added optional property age to interface User'],
+    });
+  });
 });
-
-const report = await detector.detectChanges();
-// Result: Minor change (backward compatible)
 ```
+
+---
 
 ## Error Handling
 
-The detector will throw errors for:
+The library provides robust error handling for invalid inputs and TypeScript syntax errors. Here’s how to handle errors:
 
-- Invalid TypeScript syntax
-- Missing content in definition files
-- Type checker initialization failures
+```typescript
+try {
+  const detector = new SemverChangeDetector({
+    previous: {
+      name: 'v1.d.ts',
+      content: 'invalid typescript!!!',
+    },
+    current: {
+      name: 'v2.d.ts',
+      content: 'export interface User {}',
+    },
+  });
+
+  await detector.detectChanges();
+} catch (error) {
+  console.error('Error analyzing types:', error.message);
+
+  // Handle specific error types
+  if (error instanceof TypeValidationError) {
+    console.error('Invalid TypeScript syntax:', error.details);
+  } else if (error instanceof ContentError) {
+    console.error('Missing or invalid content:', error.details);
+  }
+}
+```
+
+### Common Errors
+
+- **TypeValidationError:** Thrown when the input contains invalid TypeScript syntax.
+- **ContentError:** Thrown when the input content is missing or malformed.
+- **TypeCheckerError:** Thrown when the TypeScript type checker fails to initialize.
+
+---
 
 ## Contributing
 
-We welcome contributions, especially in these areas:
+We welcome contributions to improve the library! Here are some key areas where help is needed:
 
-1. Fixing failing tests for function signature comparisons
-2. Improving type compatibility detection
-3. Adding support for advanced TypeScript features
-4. Enhancing error messages and validation
+1. **Function Signature Comparisons:** Improve detection of changes in function parameters, return types, and generics.
+2. **Type Compatibility Detection:** Enhance support for complex types like unions, intersections, and conditional types.
+3. **Advanced TypeScript Features:** Add support for mapped types, template literal types, and other advanced features.
+4. **Error Handling:** Improve error messages and validation for better developer experience.
+5. **Test Coverage:** Expand test coverage to cover more TypeScript features and scenarios.
+6. **Documentation:** Improve the README and documentation to make the library more accessible.
+7. **Anything else:** If you have ideas for new features or improvements, feel free to open an issue or submit a pull request.
 
-### Development Setup
 
-```bash
-# Install dependencies
-npm install
+### Getting Started
 
-# Run tests (note: some tests are currently failing)
-npm test
+1. **Clone the repository:**
 
-# Build the project
-npm run build
-```
+   ```bash
+   git clone https://github.com/Bryan-Cee/ts-semver-analyzer.git
+   cd ts-semver-analyzer
+   ```
+
+2. **Install dependencies:**
+
+   ```bash
+   npm install
+   ```
+
+3. **Run tests:**
+
+   ```bash
+   npm test
+   ```
+
+4. **Run a specific test file:**
+
+   ```bash
+   npm test -- src/**test**/SemverChangeDetector.test.ts
+   ```
+
+5. **Build the project:**
+
+   ```bash
+   npm run build
+   ```
+
+### Contribution Guidelines
+
+- **Fork the repository:** Create a fork of the repository and work on your changes in a new branch.
+- **Follow coding standards:** Ensure your code follows the project's coding standards and style guidelines.
+- **Write tests:** Add tests for any new features or bug fixes.
+- **Submit a pull request:** Once your changes are ready, submit a pull request with a clear description of the changes and the problem they solve.
+
+
+### Code Structure
+
+Details about the code structure can be found [here](./CONTRIBUTION.md)
+
+### Reporting Issues
+
+If you encounter any issues or have suggestions for improvements, please open an issue on the [GitHub repository](https://github.com/Bryan-Cee/ts-semver-analyzer/issues). Include the following details:
+
+- A clear description of the issue.
+- Steps to reproduce the issue.
+- Expected vs. actual behavior.
+- Any relevant error messages or logs.
+
+---
+
+## Roadmap
+
+- [ ] **v1.0.0:** Stable release with full support for basic TypeScript features.
+- [ ] **v1.1.0:** Add support for advanced TypeScript features (mapped types, conditional types).
+- [ ] **v1.2.0:** Improve function signature comparison and generic type detection.
+- [ ] **v2.0.0:** Add CLI tool for easier integration into CI/CD pipelines.
+
+---
