@@ -3,10 +3,12 @@ module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
   transform: {
-    "^.+.tsx?$": ["ts-jest", {}],
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: 'tsconfig.json'
+    }]
   },
   moduleNameMapper: {
     "^@src/(.*)$": "<rootDir>/src/$1",
   },
-  testPathIgnorePatterns: ["/node_modules/", "/lib/"],
+  testPathIgnorePatterns: ["/node_modules/", "/lib/", "/dist"],
 };
