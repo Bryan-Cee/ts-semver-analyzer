@@ -6,12 +6,12 @@ A TypeScript library for detecting breaking changes and semantic versioning upda
 
 ## ⚠️ Development Status
 
-This package is currently in **active development**. Some features are still being refined, and contributions are welcome to help resolve the following issues:
+This package is currently in **active development**. While all current tests are passing, we welcome contributions to enhance the test coverage and robustness in the following areas:
 
-- **Function Signature Comparison:** Needs improvement for handling complex signatures.
-- **Advanced TypeScript Features:** Support for mapped types, conditional types, and template literal types is incomplete.
-- **Type Compatibility Tests:** Some tests are failing and need fixes.
-- **Generic Type Constraints:** Detection of generic type constraints needs enhancement.
+- **Function Signature Comparison:** Add more test cases for complex function signatures, including overloads and complex generic constraints.
+- **Advanced TypeScript Features:** Expand test coverage for mapped types, conditional types, and template literal types.
+- **Edge Cases:** Add tests for corner cases and complex type combinations.
+- **Performance Testing:** Add benchmarks and performance tests for large type definitions.
 
 If you'd like to contribute, check out the [Contributing](#contributing) section below!
 
