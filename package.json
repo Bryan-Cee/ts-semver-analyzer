@@ -1,6 +1,6 @@
 {
   "name": "ts-semver-analyzer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A TypeScript library for detecting breaking changes and semantic versioning updates between TypeScript definitions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
