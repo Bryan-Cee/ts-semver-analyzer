@@ -11,8 +11,11 @@
   ],
   "scripts": {
     "clean": "rimraf dist",
-    "build": "npm run clean && tsc",
-    "test": "jest",
+    "build": "yarn tsc",
+    "test": "yarn jest",
+    "test:watch": "yarn jest --watch",
+    "lint": "yarn eslint src/**/*.ts",
+    "format": "yarn prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run test && npm run build",
     "prepare": "npm run build"
   },
@@ -48,7 +51,5 @@
     "rimraf": "^6.0.1",
     "ts-jest": "^29.2.5"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "packageManager": "yarn@4.1.0"
 }
