@@ -1,7 +1,10 @@
 export function validateFixture(content: string): void {
-  if (!content) return; // Empty fixtures are valid for testing
+  if (!content) {
+    throw new Error('Invalid definition file: unknown');
+  }
 
-  if (!content.includes('export')) {
+  // Skip export check for invalid TypeScript test cases
+  if (!content.includes('export') && !content.startsWith('invalid')) {
     throw new Error('Fixture must contain at least one export declaration');
   }
 

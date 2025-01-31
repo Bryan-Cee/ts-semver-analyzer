@@ -79,7 +79,7 @@ describe("SemverChangeDetector", () => {
   });
 
   describe("Type Compatibility", () => {
-    it.skip("should detect incompatible primitive types", async () => {
+    it("should detect incompatible primitive types", async () => {
       detector = createDetector(
         createConfigWithItems("string[]"),
         createConfigWithItems("number")
@@ -110,7 +110,7 @@ describe("SemverChangeDetector", () => {
   });
 
   describe("Generic Type Changes", () => {
-    it.skip("should handle generic constraint changes", async () => {
+    it("should handle generic constraint changes", async () => {
       detector = createDetector(
         createGenericInterfaceFixture("Container", "<T>", "value: T"),
         createGenericInterfaceFixture("Container", "<T extends object>", "value: T")
@@ -122,7 +122,7 @@ describe("SemverChangeDetector", () => {
       });
     });
 
-    it.skip("should handle type inference changes", async () => {
+    it("should handle type inference changes", async () => {
       detector = createDetector(
         createFunctionFixture("transform", "<T, U>(input: T): U"),
         createFunctionFixture("transform", "<T, U extends object>(input: T): U")
@@ -136,7 +136,7 @@ describe("SemverChangeDetector", () => {
   });
 
   describe("Advanced Type Features", () => {
-    it.skip("should handle mapped type changes", async () => {
+    it("should handle mapped type changes", async () => {
       detector = createDetector(
         createTypeFixture("ReadOnly", "{ readonly [P in keyof T]: T[P] }"),
         createTypeFixture("ReadOnly", "{ [P in keyof T]: T[P] }")
@@ -148,7 +148,7 @@ describe("SemverChangeDetector", () => {
       });
     });
 
-    it.skip("should handle conditional type changes", async () => {
+    it("should handle conditional type changes", async () => {
       detector = createDetector(
         createTypeFixture("TypeName", "T extends string ? 'string' : 'other'"),
         createTypeFixture("TypeName", "T extends string ? 'string' : T extends number ? 'number' : 'other'")
@@ -160,7 +160,7 @@ describe("SemverChangeDetector", () => {
       });
     });
 
-    it.skip("should handle template literal type changes", async () => {
+    it("should handle template literal type changes", async () => {
       detector = createDetector(
         createTypeFixture("EventName", "'click' | 'hover'"),
         createTypeFixture("EventName", "'click' | 'hover' | 'focus'")

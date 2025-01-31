@@ -46,6 +46,13 @@ export class TypeComparator {
   private compareNodeTypes(oldType: ts.Type, newType: ts.Type): boolean {
     const oldTypeStr = this.typeChecker.typeToString(oldType);
     const newTypeStr = this.typeChecker.typeToString(newType);
+    
+    // Handle array type to primitive type comparison
+    if (oldTypeStr.includes('[]') && !newTypeStr.includes('[]')) {
+      return false;
+    }
+
+    // Get the base types for comparison
     const oldTypeObj = this.getTypeObject(oldType);
     const newTypeObj = this.getTypeObject(newType);
     
@@ -53,9 +60,17 @@ export class TypeComparator {
       return true;
     }
 
-    if (newTypeStr.includes(oldTypeStr)) {
-      return true;
+    // Handle conditional types first
+    if (oldTypeStr.includes('extends') && oldTypeStr.includes('?') &&
+        newTypeStr.includes('extends') && newTypeStr.includes('?')) {
+      // If the new type starts with the same condition and adds more branches,
+      // consider it a compatible change
+      const oldFirstBranch = oldTypeStr.split('?')[0];
+      if (newTypeStr.startsWith(oldFirstBranch)) {
+        return true;
+      }
     }
+
     // Handle union types
     if (this.isUnionType(oldTypeObj) || this.isUnionType(newTypeObj)) {
       return this.compareUnionTypes(oldTypeObj, newTypeObj);
@@ -80,6 +95,32 @@ export class TypeComparator {
 
     return this.typeChecker.isTypeAssignableTo(newType, oldType);
   }
+
+  private isConditionalType(type: ts.Type): boolean {
+    return type.flags === ts.TypeFlags.Conditional;
+  }
+
+  private compareConditionalTypes(oldType: ts.Type, newType: ts.Type): boolean {
+    const oldTypeStr = this.typeChecker.typeToString(oldType);
+    const newTypeStr = this.typeChecker.typeToString(newType);
+
+    // If the new type includes all branches from the old type and adds more,
+    // consider it a compatible change
+    if (newTypeStr.includes(oldTypeStr)) {
+      return true;
+    }
+
+    // Check if the new type is a more specific conditional type that maintains
+    // backward compatibility with the old type
+    const oldBranches = oldTypeStr.split('?').length - 1;
+    const newBranches = newTypeStr.split('?').length - 1;
+
+    if (newBranches > oldBranches && newTypeStr.startsWith(oldTypeStr.split('?')[0])) {
+      return true;
+    }
+
+    return this.typeChecker.isTypeAssignableTo(newType, oldType);
+  }
   private isUnionType(type: ts.Type): boolean {
     return type.isUnion();
   }
@@ -89,7 +130,11 @@ export class TypeComparator {
   }
 
   private isGenericType(type: ts.Type): boolean {
-    return type.getSymbol()?.getName() === "GenericType";
+    const symbol = type.getSymbol();
+    if (!symbol) return false;
+    const declarations = symbol.getDeclarations();
+    if (!declarations || declarations.length === 0) return false;
+    return ts.isTypeParameterDeclaration(declarations[0]);
   }
 
   private compareUnionTypes(oldType: ts.Type, newType: ts.Type): boolean {
@@ -114,18 +159,40 @@ export class TypeComparator {
   }
 
   private compareGenericTypes(oldType: ts.Type, newType: ts.Type): boolean {
-    const oldTypeArgs = this.typeChecker.getTypeArguments(
-      oldType as ts.TypeReference
-    );
-    const newTypeArgs = this.typeChecker.getTypeArguments(
-      newType as ts.TypeReference
-    );
-
-    if (oldTypeArgs.length !== newTypeArgs.length) return false;
-
-    return oldTypeArgs.every((oldArg, i) =>
-      this.areTypesCompatible(oldArg, newTypeArgs[i])
-    );
+    const oldSymbol = oldType.getSymbol();
+    const newSymbol = newType.getSymbol();
+    
+    if (!oldSymbol || !newSymbol) return false;
+    
+    const oldDecl = oldSymbol.getDeclarations()?.[0];
+    const newDecl = newSymbol.getDeclarations()?.[0];
+    
+    if (!oldDecl || !newDecl) return false;
+    
+    if (ts.isTypeParameterDeclaration(oldDecl) && ts.isTypeParameterDeclaration(newDecl)) {
+      const oldConstraint = oldDecl.constraint ? this.typeChecker.getTypeFromTypeNode(oldDecl.constraint) : undefined;
+      const newConstraint = newDecl.constraint ? this.typeChecker.getTypeFromTypeNode(newDecl.constraint) : undefined;
+      
+      // If a constraint is added to a previously unconstrained type parameter,
+      // or if the constraint is changed to be more restrictive, it's a breaking change
+      if (!oldConstraint && newConstraint) {
+        return false;
+      }
+      
+      if (oldConstraint && newConstraint) {
+        // Check if the new constraint is more restrictive
+        const isAssignable = this.typeChecker.isTypeAssignableTo(newConstraint, oldConstraint);
+        const isReverse = this.typeChecker.isTypeAssignableTo(oldConstraint, newConstraint);
+        
+        // If the new constraint is not assignable to the old one, or if they're not equivalent,
+        // it's a breaking change
+        if (!isAssignable || (isAssignable && isReverse)) {
+          return false;
+        }
+      }
+    }
+    
+    return this.typeChecker.isTypeAssignableTo(newType, oldType);
   }
 
   private isArrayType(type: ts.Type): boolean {
@@ -137,7 +204,8 @@ export class TypeComparator {
     const oldTypeStr = this.typeChecker.typeToString(oldType);
     const newTypeStr = this.typeChecker.typeToString(newType);
 
-    if (!newTypeStr.includes("[]")) return false;
+    // If either type is not an array, they are incompatible
+    if (!oldTypeStr.includes("[]") || !newTypeStr.includes("[]")) return false;
 
     const oldElementType = this.typeChecker.getTypeArguments(
       oldType as ts.TypeReference

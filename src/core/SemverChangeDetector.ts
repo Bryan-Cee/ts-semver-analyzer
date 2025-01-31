@@ -146,17 +146,62 @@ export class SemverChangeDetector implements ChangeDetector {
     previousInterfaces.forEach((prevInterface, name) => {
       if (!currentInterfaces.has(name)) {
         changes.push(`BREAKING: Removed interface ${name}`);
+        return;
       }
+
+      const currInterface = currentInterfaces.get(name);
+      if (!currInterface) return;
+
+      // Check for generic type parameter changes
+      if (prevInterface.typeParameters || currInterface.typeParameters) {
+        this.compareGenericTypeParameters(name, prevInterface, currInterface, changes);
+      }
+
+      this.compareInterfaceMembers(name, prevInterface, currInterface, changes);
     });
 
     currentInterfaces.forEach((currInterface, name) => {
-      const prevInterface = previousInterfaces.get(name);
-      if (!prevInterface) {
+      if (!previousInterfaces.has(name)) {
         changes.push(`MINOR: Added new interface ${name}`);
-        return;
       }
-      this.compareInterfaceMembers(name, prevInterface, currInterface, changes);
     });
+  }
+
+  private compareGenericTypeParameters(
+    interfaceName: string,
+    prevInterface: ts.InterfaceDeclaration,
+    currInterface: ts.InterfaceDeclaration,
+    changes: string[]
+  ): void {
+    const prevParams = prevInterface.typeParameters || [];
+    const currParams = currInterface.typeParameters || [];
+
+    for (let i = 0; i < Math.min(prevParams.length, currParams.length); i++) {
+      const prevParam = prevParams[i];
+      const currParam = currParams[i];
+      const paramName = prevParam.name.text;
+
+      // Check if a constraint was added
+      if (!prevParam.constraint && currParam.constraint) {
+        changes.push(
+          `BREAKING: Added constraint ${currParam.constraint.getText()} to generic parameter ${paramName} in interface ${interfaceName}`
+        );
+      }
+      // Check if constraint was changed
+      else if (prevParam.constraint && currParam.constraint &&
+               !this.typeComparator.areTypesCompatible(prevParam.constraint, currParam.constraint)) {
+        changes.push(
+          `BREAKING: Changed constraint on generic parameter ${paramName} in interface ${interfaceName}`
+        );
+      }
+    }
+
+    // Check for removed or added type parameters
+    if (prevParams.length > currParams.length) {
+      changes.push(`BREAKING: Removed generic type parameters from interface ${interfaceName}`);
+    } else if (prevParams.length < currParams.length) {
+      changes.push(`BREAKING: Added generic type parameters to interface ${interfaceName}`);
+    }
   }
 
   private compareInterfaceMembers(
@@ -235,13 +280,26 @@ export class SemverChangeDetector implements ChangeDetector {
     const prevText = prevType.getText();
     const currText = currType.getText();
 
-    if (currText.includes(prevText) && currText !== prevText) {
-      changes.push(
-        `MINOR: Added a union type of member ${propertyName} in interface ${interfaceName}: ${prevText} to ${currText}`
-      );
-    } else if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+    // Get the actual types from the TypeChecker for more accurate comparison
+    const prevTypeObj = this.typeChecker.getTypeFromTypeNode(prevType);
+    const currTypeObj = this.typeChecker.getTypeFromTypeNode(currType);
+
+
+    // Handle array type to primitive type comparison
+    if (prevText.includes('[]') && !currText.includes('[]')) {
       changes.push(
         `BREAKING: Changed type of member ${propertyName} in interface ${interfaceName}: ${prevText} is not assignable to ${currText}`
+      );
+      return;
+    }
+
+    if (!this.typeComparator.areTypesCompatible(prevTypeObj, currTypeObj)) {
+      changes.push(
+        `BREAKING: Changed type of member ${propertyName} in interface ${interfaceName}: ${prevText} is not assignable to ${currText}`
+      );
+    } else if (currText.includes(prevText) && currText !== prevText) {
+      changes.push(
+        `MINOR: Added a union type of member ${propertyName} in interface ${interfaceName}: ${prevText} to ${currText}`
       );
     }
   }
@@ -253,20 +311,44 @@ export class SemverChangeDetector implements ChangeDetector {
     previousTypes.forEach((prevType, name) => {
       if (!currentTypes.has(name)) {
         changes.push(`BREAKING: Removed type ${name}`);
+        return;
+      }
+
+      const currType = currentTypes.get(name);
+      if (!currType) return;
+
+      const prevText = prevType.getText();
+      const currText = currType.getText();
+
+      if (prevText.includes('readonly') && !currText.includes('readonly')) {
+        changes.push(`BREAKING: Changed mapped type definition in type ${name}`);
+      } else if (currText.includes('extends') && currText.includes('?')) {
+        // Handle conditional type changes
+        const prevBranches = prevText.split('?').length - 1;
+        const currBranches = currText.split('?').length - 1;
+        
+        if (currText.startsWith(prevText.split('?')[0]) && currBranches > prevBranches) {
+          // Adding new branches while maintaining the existing ones is a minor change
+          changes.push(`MINOR: Added conditional branches to type ${name}`);
+        } else if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+          // Breaking if the types are not compatible
+          changes.push(
+            `BREAKING: Changed type definition of ${name}: ${prevText} is not assignable to ${currText}`
+          );
+        }
+      } else if (currText.includes(prevText) && currText !== prevText) {
+        // For union types and template literal types
+        changes.push(`MINOR: Added union type option to type ${name}`);
+      } else if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+        changes.push(
+          `BREAKING: Changed type definition of ${name}: ${prevText} is not assignable to ${currText}`
+        );
       }
     });
 
     currentTypes.forEach((currType, name) => {
-      const prevType = previousTypes.get(name);
-      if (!prevType) {
+      if (!previousTypes.has(name)) {
         changes.push(`MINOR: Added new type ${name}`);
-        return;
-      }
-
-      if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
-        changes.push(
-          `BREAKING: Changed type definition of ${name}: ${prevType.getText()} is not assignable to ${currType.getText()}`
-        );
       }
     });
   }

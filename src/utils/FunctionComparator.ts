@@ -16,6 +16,11 @@ export class FunctionComparator {
     const prevType = this.typeChecker.getTypeAtLocation(prevFunction);
     const currType = this.typeChecker.getTypeAtLocation(currFunction);
 
+    // Check for generic type parameter changes
+    if (ts.isFunctionDeclaration(prevFunction) && ts.isFunctionDeclaration(currFunction)) {
+      this.compareGenericTypeParameters(functionName, prevFunction, currFunction, changes);
+    }
+
     const prevSig = this.typeChecker.getSignaturesOfType(prevType, ts.SignatureKind.Call)[0];
     const currSig = this.typeChecker.getSignaturesOfType(currType, ts.SignatureKind.Call)[0];
 
@@ -62,6 +67,43 @@ export class FunctionComparator {
     }
 
     return changes;
+  }
+
+  private compareGenericTypeParameters(
+    functionName: string,
+    prevFunction: ts.FunctionDeclaration,
+    currFunction: ts.FunctionDeclaration,
+    changes: string[]
+  ): void {
+    const prevParams = prevFunction.typeParameters || [];
+    const currParams = currFunction.typeParameters || [];
+
+    for (let i = 0; i < Math.min(prevParams.length, currParams.length); i++) {
+      const prevParam = prevParams[i];
+      const currParam = currParams[i];
+      const paramName = prevParam.name.text;
+
+      // Check if a constraint was added
+      if (!prevParam.constraint && currParam.constraint) {
+        changes.push(
+          `BREAKING: Added type constraint to generic parameter ${paramName} in function ${functionName}`
+        );
+      }
+      // Check if constraint was changed
+      else if (prevParam.constraint && currParam.constraint &&
+               !this.typeComparator.areTypesCompatible(prevParam.constraint, currParam.constraint)) {
+        changes.push(
+          `BREAKING: Changed type constraint on generic parameter ${paramName} in function ${functionName}`
+        );
+      }
+    }
+
+    // Check for removed or added type parameters
+    if (prevParams.length > currParams.length) {
+      changes.push(`BREAKING: Removed generic type parameters from function ${functionName}`);
+    } else if (prevParams.length < currParams.length) {
+      changes.push(`BREAKING: Added generic type parameters to function ${functionName}`);
+    }
   }
 
   private getFunctionSignature(node: ts.Node): string {
