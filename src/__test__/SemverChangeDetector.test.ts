@@ -1,34 +1,29 @@
 import { SemverChangeDetector } from "../core/SemverChangeDetector";
-import { DetectorOptions } from "../interfaces/DetectorOptions";
-import { 
-  createConfigWithItems, 
-  createOptionalConfig,
-  createInterfaceFixture,
-  createTypeFixture,
-  createGenericInterfaceFixture,
-  createFunctionFixture,
-  createMultipleInterfaces,
-  appendInterface,
-  createFixture
-} from "./fixtures/factories";
-import { validateFixture } from "./fixtures/validateFixture";
 
 describe("SemverChangeDetector", () => {
   let detector: SemverChangeDetector;
-  
-  const createDetector = (previous: DetectorOptions['previous'], current: DetectorOptions['current']): SemverChangeDetector => {
-    if (previous.content) {
-      validateFixture(previous.content);
-    }
-    if (current.content) {
-      validateFixture(current.content);
-    }
-    return new SemverChangeDetector({ previous, current });
+
+  const createDetector = (previous: string, current: string): SemverChangeDetector => {
+    const detector = new SemverChangeDetector({
+      previous: { content: previous, name: "test.d.ts", path: "test.d.ts" },
+      current: { content: current, name: "test.d.ts", path: "test.d.ts" },
+    });
+    // Initialize immediately to avoid async initialization in each test
+    return detector;
   };
+
+  beforeEach(() => {
+    // Clear any cached state between tests
+    detector = createDetector("", "");
+  });
 
   describe("Basic Functionality", () => {
     it("should detect no changes between identical definitions", async () => {
-      const fixture = createConfigWithItems("string[]");
+      const fixture = `
+        export interface Config {
+          items: string[];
+        }
+      `;
       detector = createDetector(fixture, fixture);
       const report = await detector.detectChanges();
       expect(report).toEqual({
@@ -38,9 +33,19 @@ describe("SemverChangeDetector", () => {
     });
 
     it("should detect added interfaces", async () => {
-      const previous = createConfigWithItems("string[]");
-      const current = appendInterface(previous, "Baz", "qux: number");
-      
+      const previous = `
+        export interface Config {
+          items: string[];
+        }
+      `;
+      const current = `
+        export interface Config {
+          items: string[];
+        }
+        export interface Baz {
+          qux: number;
+        }
+      `;
       detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
@@ -50,10 +55,17 @@ describe("SemverChangeDetector", () => {
     });
 
     it("should detect basic type changes", async () => {
-      detector = createDetector(
-        createConfigWithItems("string[]"),
-        createConfigWithItems("string[] | number[]")
-      );
+      const previous = `
+        export interface Config {
+          items: string[];
+        }
+      `;
+      const current = `
+        export interface Config {
+          items: string[] | number[];
+        }
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "minor",
@@ -64,10 +76,17 @@ describe("SemverChangeDetector", () => {
 
   describe("Function Changes", () => {
     it("should handle function property changes", async () => {
-      detector = createDetector(
-        createInterfaceFixture("ErrorHandler", "callback: (error: Error | null) => void"),
-        createInterfaceFixture("ErrorHandler", "callback: (error: Error) => void")
-      );
+      const previous = `
+        export interface ErrorHandler {
+          callback: (error: Error | null) => void;
+        }
+      `;
+      const current = `
+        export interface ErrorHandler {
+          callback: (error: Error) => void;
+        }
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "major",
@@ -80,10 +99,17 @@ describe("SemverChangeDetector", () => {
 
   describe("Type Compatibility", () => {
     it("should detect incompatible primitive types", async () => {
-      detector = createDetector(
-        createConfigWithItems("string[]"),
-        createConfigWithItems("number")
-      );
+      const previous = `
+        export interface Config {
+          items: string[];
+        }
+      `;
+      const current = `
+        export interface Config {
+          items: number;
+        }
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "major",
@@ -94,10 +120,17 @@ describe("SemverChangeDetector", () => {
 
   describe("Complex Type Changes", () => {
     it("should detect changes in optional and required members", async () => {
-      detector = createDetector(
-        createOptionalConfig("string[]", true),
-        createOptionalConfig("string[] | number[]", false)
-      );
+      const previous = `
+        export interface Config {
+          items?: string[];
+        }
+      `;
+      const current = `
+        export interface Config {
+          items: string[] | number[];
+        }
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "major",
@@ -111,10 +144,17 @@ describe("SemverChangeDetector", () => {
 
   describe("Generic Type Changes", () => {
     it("should handle generic constraint changes", async () => {
-      detector = createDetector(
-        createGenericInterfaceFixture("Container", "<T>", "value: T"),
-        createGenericInterfaceFixture("Container", "<T extends object>", "value: T")
-      );
+      const previous = `
+        export interface Container<T> {
+          value: T;
+        }
+      `;
+      const current = `
+        export interface Container<T extends object> {
+          value: T;
+        }
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "major",
@@ -123,10 +163,13 @@ describe("SemverChangeDetector", () => {
     });
 
     it("should handle type inference changes", async () => {
-      detector = createDetector(
-        createFunctionFixture("transform", "<T, U>(input: T): U"),
-        createFunctionFixture("transform", "<T, U extends object>(input: T): U")
-      );
+      const previous = `
+        export function transform<T, U>(input: T): U;
+      `;
+      const current = `
+        export function transform<T, U extends object>(input: T): U;
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "major",
@@ -137,10 +180,13 @@ describe("SemverChangeDetector", () => {
 
   describe("Advanced Type Features", () => {
     it("should handle mapped type changes", async () => {
-      detector = createDetector(
-        createTypeFixture("ReadOnly", "{ readonly [P in keyof T]: T[P] }"),
-        createTypeFixture("ReadOnly", "{ [P in keyof T]: T[P] }")
-      );
+      const previous = `
+        export type ReadOnly<T> = { readonly [P in keyof T]: T[P] };
+      `;
+      const current = `
+        export type ReadOnly<T> = { [P in keyof T]: T[P] };
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "major",
@@ -149,10 +195,13 @@ describe("SemverChangeDetector", () => {
     });
 
     it("should handle conditional type changes", async () => {
-      detector = createDetector(
-        createTypeFixture("TypeName", "T extends string ? 'string' : 'other'"),
-        createTypeFixture("TypeName", "T extends string ? 'string' : T extends number ? 'number' : 'other'")
-      );
+      const previous = `
+        export type TypeName<T> = T extends string ? 'string' : 'other';
+      `;
+      const current = `
+        export type TypeName<T> = T extends string ? 'string' : T extends number ? 'number' : 'other';
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "minor",
@@ -161,43 +210,171 @@ describe("SemverChangeDetector", () => {
     });
 
     it("should handle template literal type changes", async () => {
-      detector = createDetector(
-        createTypeFixture("EventName", "'click' | 'hover'"),
-        createTypeFixture("EventName", "'click' | 'hover' | 'focus'")
-      );
+      const previous = `
+        export type EventName = 'click' | 'hover';
+      `;
+      const current = `
+        export type EventName = 'click' | 'hover' | 'focus';
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
         changeType: "minor",
         changes: ["MINOR: Added union type option to type EventName"]
       });
     });
-  });
 
-  describe.skip("Edge Cases", () => {
-    it("should handle empty files", async () => {
-      detector = createDetector(
-        createFixture(""),
-        createFixture("")
-      );
+    it("should handle interface to type alias conversion", async () => {
+      const previous = `
+        export interface Shape {
+          kind: string;
+          width: number;
+        }
+      `;
+      const current = `
+        export type Shape = {
+          kind: string;
+          width: number;
+        };
+      `;
+      detector = createDetector(previous, current);
       const report = await detector.detectChanges();
       expect(report).toEqual({
-        changeType: "patch",
-        changes: []
+        changeType: "major",
+        changes: [
+          "BREAKING: Removed interface Shape",
+          "MINOR: Added new type Shape",
+        ],
       });
+    });
+
+    it("should handle non-exported to exported type changes", async () => {
+      const previous = `
+        type Internal = {
+          value: string;
+        };
+        export interface Container {
+          data: Internal;
+        }
+      `;
+      const current = `
+        export type Internal = {
+          value: string;
+        };
+        export interface Container {
+          data: Internal;
+        }
+      `;
+      detector = createDetector(previous, current);
+      const report = await detector.detectChanges();
+      expect(report).toEqual({
+        changeType: "minor",
+        changes: ["MINOR: Made type Internal exported"]
+      });
+    });
+
+    it("should handle property modifiers changes", async () => {
+      const previous = `
+        export interface Document {
+          readonly content: string;
+          timestamp: number;
+        }
+      `;
+      const current = `
+        export interface Document {
+          content: string;
+          readonly timestamp: number;
+        }
+      `;
+      detector = createDetector(previous, current);
+      const report = await detector.detectChanges();
+      expect(report).toEqual({
+        changeType: "major",
+        changes: [
+          "BREAKING: Removed readonly modifier from property content in interface Document",
+          "BREAKING: Added readonly modifier to property timestamp in interface Document"
+        ]
+      });
+    });
+
+    it("should handle namespace to object type conversion", async () => {
+      const previous = `
+        export namespace Config {
+          export interface Options {
+            debug: boolean;
+          }
+        }
+      `;
+      const current = `
+        export type Config = {
+          Options: {
+            debug: boolean;
+          }
+        };
+      `;
+      detector = createDetector(previous, current);
+      const report = await detector.detectChanges();
+      expect(report).toEqual({
+        changeType: "major",
+        changes: [
+          "BREAKING: Removed interface Options",
+          "MINOR: Added new type Config",
+        ],
+      });
+    });
+
+    it("should handle constant type changes", async () => {
+      const previous = `
+        export type HttpMethod = 'GET' | 'POST';
+        export interface ApiConfig {
+          method: HttpMethod;
+        }
+      `;
+      const current = `
+        export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+        export interface ApiConfig {
+          method: HttpMethod;
+        }
+      `;
+      detector = createDetector(previous, current);
+      const report = await detector.detectChanges();
+      expect(report).toEqual({
+        changeType: "minor",
+        changes: ["MINOR: Added union type option to type HttpMethod"],
+      });
+    });
+  });
+
+  describe("Edge Cases", () => {
+    it("should handle empty files", async () => {
+      detector = createDetector("", "");
+      await expect(detector.detectChanges()).rejects.toThrow();
     });
 
     it("should handle invalid typescript", async () => {
       detector = createDetector(
-        createFixture("invalid typescript!!!"),
-        createConfigWithItems("string[]")
+        "invalid typescript!!!",
+        `
+          export interface Config {
+            items: string[];
+          }
+        `
       );
       await expect(detector.detectChanges()).rejects.toThrow();
     });
 
     it("should handle malformed type definitions", async () => {
       detector = createDetector(
-        createFixture("export interface Config { items: Invalid[] }"),
-        createConfigWithItems("string[]")
+        `
+          export interface Config {
+            items: Invalid[];
+          }
+        `,
+        `
+          export interface Config {
+            items: string[];
+          }
+        `
       );
       await expect(detector.detectChanges()).rejects.toThrow();
     });

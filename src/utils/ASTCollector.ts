@@ -21,11 +21,11 @@ export class ASTCollector {
     return members;
   }
 
-  public collectTypeAliases(sourceFile: ts.SourceFile): Map<string, ts.TypeNode> {
-    const types = new Map<string, ts.TypeNode>();
+  public collectTypeAliases(sourceFile: ts.SourceFile): Map<string, ts.TypeAliasDeclaration> {
+    const types = new Map<string, ts.TypeAliasDeclaration>();
     this.visit(sourceFile, node => {
-      if (ts.isTypeAliasDeclaration(node) && node.name && node.type) {
-        types.set(node.name.text, node.type);
+      if (ts.isTypeAliasDeclaration(node) && node.name) {
+        types.set(node.name.text, node);
       }
     });
     return types;

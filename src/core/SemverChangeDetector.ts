@@ -7,6 +7,7 @@ import { ASTCollector } from "../utils/ASTCollector";
 
 import { FileValidator } from '../utils/FileValidator';
 import { DetectorOptions, DefinitionFile } from "../interfaces/DetectorOptions";
+import { CompilerConfig } from '../utils/CompilerConfig';
 
 export class SemverChangeDetector implements ChangeDetector {
   private previousAST!: ts.SourceFile;
@@ -92,40 +93,12 @@ export class SemverChangeDetector implements ChangeDetector {
   }
 
   private createTypeChecker(previousAST: ts.SourceFile, currentAST: ts.SourceFile): ts.TypeChecker {
-    const compilerOptions: ts.CompilerOptions = {
-      strict: true,
-      noImplicitAny: true,
-      strictNullChecks: true,
-      target: ts.ScriptTarget.Latest,
-      module: ts.ModuleKind.CommonJS,
-      lib: ['lib.es2015.d.ts', 'lib.dom.d.ts'],
-      types: [],
-      declaration: true
-    };
+    const sourceFiles = new Map([
+      ["previous.d.ts", previousAST],
+      ["current.d.ts", currentAST]
+    ]);
 
-    const program = ts.createProgram({
-      rootNames: ["previous.d.ts", "current.d.ts"],
-      options: compilerOptions,
-      host: {
-        getSourceFile: (fileName) => {
-          if (fileName === "previous.d.ts") return previousAST;
-          if (fileName === "current.d.ts") return currentAST;
-          return undefined;
-        },
-        getDefaultLibFileName: () => "lib.d.ts",
-        writeFile: () => {},
-        getCurrentDirectory: () => "",
-        getCanonicalFileName: (fileName) => fileName,
-        useCaseSensitiveFileNames: () => true,
-        getNewLine: () => "\n",
-        fileExists: (fileName) =>
-          fileName === "previous.d.ts" || fileName === "current.d.ts",
-        readFile: () => undefined,
-        directoryExists: () => true,
-        getDirectories: () => [],
-      },
-    });
-
+    const program = CompilerConfig.createProgram(sourceFiles);
     return program.getTypeChecker();
   }
 
@@ -232,11 +205,21 @@ export class SemverChangeDetector implements ChangeDetector {
 
       const prevIsOptional = prevMember.questionToken !== undefined;
       const currIsOptional = currMember.questionToken !== undefined;
+      const prevIsReadonly = prevMember.modifiers?.some(m => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false;
+      const currIsReadonly = currMember.modifiers?.some(m => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false;
 
       if (prevIsOptional && !currIsOptional) {
         changes.push(
           `BREAKING: Changed member ${name} in interface ${interfaceName} from optional to required`
         );
+      }
+
+      if (prevIsReadonly !== currIsReadonly) {
+        if (prevIsReadonly) {
+          changes.push(`BREAKING: Removed readonly modifier from property ${name} in interface ${interfaceName}`);
+        } else {
+          changes.push(`BREAKING: Added readonly modifier to property ${name} in interface ${interfaceName}`);
+        }
       }
 
       if (prevMember.type && currMember.type) {
@@ -284,6 +267,13 @@ export class SemverChangeDetector implements ChangeDetector {
     const prevTypeObj = this.typeChecker.getTypeFromTypeNode(prevType);
     const currTypeObj = this.typeChecker.getTypeFromTypeNode(currType);
 
+    // Check if current type is a union that includes the previous type
+    if (currText.includes(prevText) && currText !== prevText) {
+      changes.push(
+        `MINOR: Added a union type of member ${propertyName} in interface ${interfaceName}: ${prevText} to ${currText}`
+      );
+      return;
+    }
 
     // Handle array type to primitive type comparison
     if (prevText.includes('[]') && !currText.includes('[]')) {
@@ -296,10 +286,6 @@ export class SemverChangeDetector implements ChangeDetector {
     if (!this.typeComparator.areTypesCompatible(prevTypeObj, currTypeObj)) {
       changes.push(
         `BREAKING: Changed type of member ${propertyName} in interface ${interfaceName}: ${prevText} is not assignable to ${currText}`
-      );
-    } else if (currText.includes(prevText) && currText !== prevText) {
-      changes.push(
-        `MINOR: Added a union type of member ${propertyName} in interface ${interfaceName}: ${prevText} to ${currText}`
       );
     }
   }
@@ -320,7 +306,24 @@ export class SemverChangeDetector implements ChangeDetector {
       const prevText = prevType.getText();
       const currText = currType.getText();
 
-      if (prevText.includes('readonly') && !currText.includes('readonly')) {
+      if (currText.includes('extends') && currText.includes('?')) {
+        // Handle conditional type changes
+        const prevBranches = prevText.split('?').length - 1;
+        const currBranches = currText.split('?').length - 1;
+        
+        if (currText.startsWith(prevText.split('?')[0]) && currBranches > prevBranches) {
+          // Adding new branches while maintaining the existing ones is a minor change
+          changes.push(`MINOR: Added conditional branches to type ${name}`);
+        }
+      } else if ((currText.includes('|') || currText.includes('\'')) && currText !== prevText) {
+        // For union types and string literal types
+        const prevParts = prevText.replace(/\s+|export|type|=|;/g, '').split('|').map(p => p.trim());
+        const currParts = currText.replace(/\s+|export|type|=|;/g, '').split('|').map(p => p.trim());
+        // Check if all previous parts are included in current parts and there are new parts
+        if (prevParts.every(p => currParts.includes(p)) && currParts.length > prevParts.length) {
+          changes.push(`MINOR: Added union type option to type ${name}`);
+        }
+      } else if (prevText.includes('readonly') && !currText.includes('readonly')) {
         changes.push(`BREAKING: Changed mapped type definition in type ${name}`);
       } else if (currText.includes('extends') && currText.includes('?')) {
         // Handle conditional type changes
@@ -330,16 +333,13 @@ export class SemverChangeDetector implements ChangeDetector {
         if (currText.startsWith(prevText.split('?')[0]) && currBranches > prevBranches) {
           // Adding new branches while maintaining the existing ones is a minor change
           changes.push(`MINOR: Added conditional branches to type ${name}`);
-        } else if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+        } else if (!this.typeComparator.areTypesCompatible(prevType.type, currType.type)) {
           // Breaking if the types are not compatible
           changes.push(
             `BREAKING: Changed type definition of ${name}: ${prevText} is not assignable to ${currText}`
           );
         }
-      } else if (currText.includes(prevText) && currText !== prevText) {
-        // For union types and template literal types
-        changes.push(`MINOR: Added union type option to type ${name}`);
-      } else if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+      } else if (!this.typeComparator.areTypesCompatible(prevType.type, currType.type)) {
         changes.push(
           `BREAKING: Changed type definition of ${name}: ${prevText} is not assignable to ${currText}`
         );
@@ -347,8 +347,16 @@ export class SemverChangeDetector implements ChangeDetector {
     });
 
     currentTypes.forEach((currType, name) => {
-      if (!previousTypes.has(name)) {
+      const prevType = previousTypes.get(name);
+      if (!prevType) {
         changes.push(`MINOR: Added new type ${name}`);
+      } else {
+        const prevIsExported = (ts.isTypeAliasDeclaration(prevType) && prevType.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ?? false;
+        const currIsExported = (ts.isTypeAliasDeclaration(currType) && currType.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ?? false;
+        
+        if (!prevIsExported && currIsExported) {
+          changes.push(`MINOR: Made type ${name} exported`);
+        }
       }
     });
   }
