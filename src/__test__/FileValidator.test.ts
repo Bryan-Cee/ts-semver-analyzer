@@ -36,6 +36,23 @@ describe('FileValidator', () => {
       await expect(FileValidator.validateDefinitionFile(file)).resolves.toBe(content.trim());
     });
 
+    it('should accept valid type definition from fixture.d.ts', async () => {
+      const fs = require('fs');
+      const path = require('path');
+      const fixtureContent = fs.readFileSync(
+        path.join(__dirname, 'fixtures/fixture.d.ts'),
+        'utf-8'
+      );
+
+      const file: DefinitionFile = {
+        path: 'fixtures/fixture.d.ts',
+        name: 'fixture.d.ts',
+        content: fixtureContent
+      };
+
+      await expect(FileValidator.validateDefinitionFile(file)).resolves.toBe(fixtureContent.trim());
+    });
+
     it('should reject invalid type definition with function implementation', async () => {
       const content = `
         /// <reference path="global.d.ts" />

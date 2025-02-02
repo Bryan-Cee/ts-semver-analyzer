@@ -28,35 +28,60 @@ export class FunctionComparator {
 
     const prevParams = prevSig.getParameters();
     const currParams = currSig.getParameters();
-
+  
+    // First, check if the signatures are identical
+    const prevSigText = this.getFunctionSignature(prevFunction);
+    const currSigText = this.getFunctionSignature(currFunction);
+    
+    if (prevSigText === currSigText) {
+      return changes; // If signatures are identical, no changes needed
+    }
+  
     if (currParams.length < prevParams.length) {
       changes.push(`BREAKING: Removed parameters from function ${functionName}`);
       return changes;
     }
-
+  
+    // Compare parameter types
     for (let i = 0; i < prevParams.length; i++) {
       const prevParam = prevParams[i];
       const currParam = currParams[i];
       const prevParamType = this.typeChecker.getTypeOfSymbol(prevParam);
       const currParamType = this.typeChecker.getTypeOfSymbol(currParam);
-
+  
+      // Skip if the types are identical
+      if (this.typeChecker.typeToString(prevParamType) === this.typeChecker.typeToString(currParamType)) {
+        continue;
+      }
+  
       if (this.typeComparator.isTypeMoreRestrictive(prevParamType, currParamType)) {
-        const prevSigText = this.getFunctionSignature(prevFunction);
-        const currSigText = this.getFunctionSignature(currFunction);
         changes.push(
           `BREAKING: Changed function signature of ${functionName}: ${prevSigText} is not assignable to ${currSigText}`
         );
         return changes;
       }
     }
-
+  
+    // Check return type compatibility
+    const prevReturnType = this.typeChecker.getReturnTypeOfSignature(prevSig);
+    const currReturnType = this.typeChecker.getReturnTypeOfSignature(currSig);
+    
+    if (this.typeChecker.typeToString(prevReturnType) !== this.typeChecker.typeToString(currReturnType) &&
+        !this.typeChecker.isTypeAssignableTo(currReturnType, prevReturnType)) {
+      changes.push(
+        `BREAKING: Changed return type of function ${functionName}`
+      );
+      return changes;
+    }
+  
+    // Handle added parameters
     if (currParams.length > prevParams.length) {
       const addedParams = currParams.slice(prevParams.length);
       const allOptional = addedParams.every(param => {
         const declaration = param.valueDeclaration as ts.ParameterDeclaration;
         return !!declaration.questionToken;
       });
-
+  
       if (allOptional) {
         addedParams.forEach(param => {
           changes.push(`MINOR: Added optional parameter ${param.name} to function ${functionName}`);
@@ -65,7 +90,7 @@ export class FunctionComparator {
         changes.push(`BREAKING: Added required parameters to function ${functionName}`);
       }
     }
-
+  
     return changes;
   }
 
@@ -90,11 +115,14 @@ export class FunctionComparator {
         );
       }
       // Check if constraint was changed
-      else if (prevParam.constraint && currParam.constraint &&
-               !this.typeComparator.areTypesCompatible(prevParam.constraint, currParam.constraint)) {
-        changes.push(
-          `BREAKING: Changed type constraint on generic parameter ${paramName} in function ${functionName}`
-        );
+      else if (prevParam.constraint && currParam.constraint) {
+        const prevType = this.typeChecker.getTypeFromTypeNode(prevParam.constraint);
+        const currType = this.typeChecker.getTypeFromTypeNode(currParam.constraint);
+        if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+          changes.push(
+            `BREAKING: Changed type constraint on generic parameter ${paramName} in function ${functionName}`
+          );
+        }
       }
     }
 

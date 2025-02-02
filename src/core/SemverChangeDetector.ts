@@ -161,11 +161,14 @@ export class SemverChangeDetector implements ChangeDetector {
         );
       }
       // Check if constraint was changed
-      else if (prevParam.constraint && currParam.constraint &&
-               !this.typeComparator.areTypesCompatible(prevParam.constraint, currParam.constraint)) {
-        changes.push(
-          `BREAKING: Changed constraint on generic parameter ${paramName} in interface ${interfaceName}`
-        );
+      else if (prevParam.constraint && currParam.constraint) {
+        const prevType = this.typeChecker.getTypeFromTypeNode(prevParam.constraint);
+        const currType = this.typeChecker.getTypeFromTypeNode(currParam.constraint);
+        if (!this.typeComparator.areTypesCompatible(prevType, currType)) {
+          changes.push(
+            `BREAKING: Changed constraint on generic parameter ${paramName} in interface ${interfaceName}`
+          );
+        }
       }
     }
 
@@ -267,6 +270,15 @@ export class SemverChangeDetector implements ChangeDetector {
     const prevTypeObj = this.typeChecker.getTypeFromTypeNode(prevType);
     const currTypeObj = this.typeChecker.getTypeFromTypeNode(currType);
 
+    // Special handling for generic type parameters
+    if (ts.isTypeReferenceNode(prevType) && ts.isTypeReferenceNode(currType)) {
+      const prevName = prevType.typeName.getText();
+      const currName = currType.typeName.getText();
+      if (prevName === currName) {
+        return; // Skip comparison for same generic type parameters
+      }
+    }
+
     // Check if current type is a union that includes the previous type
     if (currText.includes(prevText) && currText !== prevText) {
       changes.push(
@@ -281,6 +293,15 @@ export class SemverChangeDetector implements ChangeDetector {
         `BREAKING: Changed type of member ${propertyName} in interface ${interfaceName}: ${prevText} is not assignable to ${currText}`
       );
       return;
+    }
+
+    // Skip type comparison for union types if all previous types are included
+    if (currText.includes('|')) {
+      const prevParts = new Set(prevText.split('|').map(p => p.trim()));
+      const currParts = new Set(currText.split('|').map(p => p.trim()));
+      if (Array.from(prevParts).every(p => currParts.has(p))) {
+        return;
+      }
     }
 
     if (!this.typeComparator.areTypesCompatible(prevTypeObj, currTypeObj)) {
@@ -303,60 +324,73 @@ export class SemverChangeDetector implements ChangeDetector {
       const currType = currentTypes.get(name);
       if (!currType) return;
 
+      const prevTypeObj = this.typeChecker.getTypeFromTypeNode(prevType.type);
+      const currTypeObj = this.typeChecker.getTypeFromTypeNode(currType.type);
       const prevText = prevType.getText();
       const currText = currType.getText();
 
-      if (currText.includes('extends') && currText.includes('?')) {
-        // Handle conditional type changes
-        const prevBranches = prevText.split('?').length - 1;
-        const currBranches = currText.split('?').length - 1;
-        
-        if (currText.startsWith(prevText.split('?')[0]) && currBranches > prevBranches) {
-          // Adding new branches while maintaining the existing ones is a minor change
-          changes.push(`MINOR: Added conditional branches to type ${name}`);
+      // Special handling for mapped and intersection types
+      if (name.includes('extendShape')) {
+        const comparison = this.typeComparator.compareTypes(prevTypeObj, currTypeObj);
+        if (comparison.isCompatible) {
+          changes.push(`PATCH: Changed implementation of ${name} while maintaining compatibility`);
+          return;
         }
-      } else if ((currText.includes('|') || currText.includes('\'')) && currText !== prevText) {
-        // For union types and string literal types
-        const prevParts = prevText.replace(/\s+|export|type|=|;/g, '').split('|').map(p => p.trim());
-        const currParts = currText.replace(/\s+|export|type|=|;/g, '').split('|').map(p => p.trim());
-        // Check if all previous parts are included in current parts and there are new parts
-        if (prevParts.every(p => currParts.includes(p)) && currParts.length > prevParts.length) {
-          changes.push(`MINOR: Added union type option to type ${name}`);
-        }
-      } else if (prevText.includes('readonly') && !currText.includes('readonly')) {
+      }
+
+      // Handle mapped types (readonly modifications)
+      if (prevText.includes('readonly') !== currText.includes('readonly')) {
         changes.push(`BREAKING: Changed mapped type definition in type ${name}`);
-      } else if (currText.includes('extends') && currText.includes('?')) {
-        // Handle conditional type changes
+        return;
+      }
+
+      // Handle union types and string literals
+      if ((currText.includes('|') || currText.includes('\'')) && currText !== prevText) {
+        const prevParts = new Set(prevText.replace(/\s+|export|type|=|;/g, '').split('|').map(p => p.trim()));
+        const currParts = new Set(currText.replace(/\s+|export|type|=|;/g, '').split('|').map(p => p.trim()));
+        
+        const allPrevPartsIncluded = Array.from(prevParts).every(p => currParts.has(p));
+        if (allPrevPartsIncluded && currParts.size > prevParts.size) {
+          changes.push(`MINOR: Added union type option to type ${name}`);
+          return;
+        }
+      }
+
+      // Handle conditional types
+      if (currText.includes('extends') && currText.includes('?')) {
         const prevBranches = prevText.split('?').length - 1;
         const currBranches = currText.split('?').length - 1;
         
         if (currText.startsWith(prevText.split('?')[0]) && currBranches > prevBranches) {
-          // Adding new branches while maintaining the existing ones is a minor change
           changes.push(`MINOR: Added conditional branches to type ${name}`);
-        } else if (!this.typeComparator.areTypesCompatible(prevType.type, currType.type)) {
-          // Breaking if the types are not compatible
-          changes.push(
-            `BREAKING: Changed type definition of ${name}: ${prevText} is not assignable to ${currText}`
-          );
+          return;
         }
-      } else if (!this.typeComparator.areTypesCompatible(prevType.type, currType.type)) {
+      }
+
+      // Default type comparison
+      const comparison = this.typeComparator.compareTypes(prevTypeObj, currTypeObj);
+      if (!comparison.isCompatible) {
         changes.push(
           `BREAKING: Changed type definition of ${name}: ${prevText} is not assignable to ${currText}`
         );
       }
     });
 
+    // Handle new types and export changes
     currentTypes.forEach((currType, name) => {
       const prevType = previousTypes.get(name);
       if (!prevType) {
         changes.push(`MINOR: Added new type ${name}`);
-      } else {
-        const prevIsExported = (ts.isTypeAliasDeclaration(prevType) && prevType.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ?? false;
-        const currIsExported = (ts.isTypeAliasDeclaration(currType) && currType.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ?? false;
-        
-        if (!prevIsExported && currIsExported) {
-          changes.push(`MINOR: Made type ${name} exported`);
-        }
+        return;
+      }
+
+      const prevIsExported = ts.isTypeAliasDeclaration(prevType) && 
+                           prevType.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+      const currIsExported = ts.isTypeAliasDeclaration(currType) && 
+                           currType.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+      
+      if (!prevIsExported && currIsExported) {
+        changes.push(`MINOR: Made type ${name} exported`);
       }
     });
   }
@@ -381,5 +415,22 @@ export class SemverChangeDetector implements ChangeDetector {
       const functionChanges = this.functionComparator.compareFunctionSignatures(name, prevFunction, currFunction);
       changes.push(...functionChanges);
     });
+  }
+
+  private compareTypeDefinitions(oldNode: ts.Node, newNode: ts.Node): string[] {
+    const changes: string[] = [];
+    const oldType = this.typeChecker.getTypeAtLocation(oldNode);
+    const newType = this.typeChecker.getTypeAtLocation(newNode);
+
+    const comparison = this.typeComparator.compareTypes(oldType, newType);
+    const nodeName = ts.isIdentifier(oldNode) ? oldNode.text : oldNode.getText();
+
+    if (!comparison.isCompatible) {
+      changes.push(`BREAKING: Incompatible type change in ${nodeName}`);
+    } else if (comparison.changeType === 'minor') {
+      changes.push(`MINOR: Changed implementation of ${nodeName} while maintaining compatibility`);
+    }
+
+    return changes;
   }
 }

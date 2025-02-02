@@ -31,8 +31,8 @@ export class FileValidator {
         throw new Error(`TypeScript validation failed:\n${errors}`);
       }
 
-      // Additional validation for type definition files
-      if (!this.isValidTypeDefinition(content)) {
+      // Additional validation for type definition files using type checker
+      if (!this.isValidTypeDefinition(sourceFile, program)) {
         throw new Error(
           `File ${file.path || "unknown"} is not a valid TypeScript definition file. It should only contain type declarations.`
         );
@@ -96,49 +96,59 @@ export class FileValidator {
     return errorMessages.join("\n");
   }
 
-  private static isValidTypeDefinition(content: string): boolean {
-    // Basic validation for type definition files
-    const invalidPatterns = [
-      /\bexport\s+(?:default|const|let|var)\b/, // No value exports
-      /\bfunction\s+\w+\s*\([^)]*\)\s*{/, // No function implementations (with body)
-      /\bclass\s+\w+\s*{/, // No class implementations
-    ];
+  private static isValidTypeDefinition(sourceFile: ts.SourceFile, program: ts.Program): boolean {
+    const typeChecker = program.getTypeChecker();
+    let hasTypeDeclarations = false;
+    let hasValueDeclarations = false;
 
-    // Allow triple-slash directives and type imports
-    const validPatterns = [
-      /^\/{3}\s*<reference\s+path=/, // Triple-slash reference directives
-      /^import\s+\*\s+as\s+\w+\s+from\s+'[^']+'/, // Type-only namespace imports
-      /^import\s+type\s+{[^}]+}\s+from\s+'[^']+'/, // Type-only named imports
-      /^import\s+{[^}]+}\s+from\s+'[^']+'/, // Regular named imports (could be types)
-      /\bfunction\s+\w+\s*<[^>]*>?\s*\([^)]*\)\s*:\s*[^{;]+;/, // Function type declarations
-      /\bexport\s+(?:type|interface|function)\s+\w+\s*<[^>]*>?\s*\([^)]*\)\s*:\s*[^{;]+;/, // Exported function type declarations
-    ];
-
-    const lines = content.split('\n');
-    let hasValidContent = false;
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine || trimmedLine.startsWith('//')) continue;
-
-      // Check if line matches any valid pattern
-      const isValidLine = validPatterns.some(pattern => pattern.test(trimmedLine));
-      if (isValidLine) {
-        hasValidContent = true;
-        continue;
+    function visit(node: ts.Node) {
+      // Skip triple-slash directives and imports
+      if (node.kind === ts.SyntaxKind.SingleLineCommentTrivia ||
+          ts.isImportDeclaration(node)) {
+        return;
       }
 
-      // Check if line contains any invalid patterns
-      if (invalidPatterns.some(pattern => pattern.test(trimmedLine))) {
-        return false;
+      // Check for type declarations
+      if (ts.isTypeAliasDeclaration(node) ||
+          ts.isInterfaceDeclaration(node) ||
+          ts.isEnumDeclaration(node) ||
+          ts.isModuleDeclaration(node) ||
+          (ts.isFunctionDeclaration(node) && !node.body)) { // Consider ambient function declarations as type declarations
+        hasTypeDeclarations = true;
       }
 
-      // Consider type declarations as valid content
-      if (trimmedLine.includes('type ') || trimmedLine.includes('interface ')) {
-        hasValidContent = true;
+      // Check for value declarations
+      if (ts.isFunctionDeclaration(node)) {
+        // Allow function declarations only if they're ambient (no implementation)
+        if (node.body) {
+          hasValueDeclarations = true;
+        }
+      } else if (ts.isClassDeclaration(node)) {
+        // Allow class declarations only if they're ambient (no implementation)
+        if (node.members.some(member => ts.isMethodDeclaration(member) && member.body)) {
+          hasValueDeclarations = true;
+        }
+      } else if (ts.isVariableStatement(node)) {
+        // Check if it's a value declaration or a type declaration
+        const declarations = node.declarationList.declarations;
+        for (const decl of declarations) {
+          const symbol = typeChecker.getSymbolAtLocation(decl.name);
+          if (symbol) {
+            const type = typeChecker.getTypeAtLocation(decl);
+            // If it's not a type declaration and has a value, it's a value declaration
+            if (!type.isTypeParameter() && decl.initializer) {
+              hasValueDeclarations = true;
+            }
+          }
+        }
       }
+
+      ts.forEachChild(node, visit);
     }
 
-    return hasValidContent;
+    visit(sourceFile);
+
+    // A valid definition file should have type declarations and no value declarations
+    return hasTypeDeclarations && !hasValueDeclarations;
   }
 }
